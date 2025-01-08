@@ -1,37 +1,34 @@
-from machine import Pin, PWM
+from machine import Pin, PWM, I2C
 import math
 import utime
 
-# Configuration de la LED intégrée
-led = Pin(25, Pin.OUT)
+# from motor import Motor  # Importer la classe Motor
 
-# Allumer la LED
-led.value(1)
+PWM_FREQ = 1000  # Constante pour la fréquence PWM
 
-# Configuration des broches pour les moteurs et les encodeurs
-motorFL_pwm = PWM(Pin(4))  # Moteur avant gauche
-motorRL_pwm = PWM(Pin(9))  # Moteur arrière gauche
-motorRR_pwm = PWM(Pin(18))  # Moteur arrière droit
-motorFR_pwm = PWM(Pin(26))  # Moteur avant droit
+# Adresse I2C de l'esclave
+I2C_SLAVE_ADDR = 0x42
 
-motorFL_dir_A = Pin(5, Pin.OUT) # Moteur avant gauche
-motorFL_dir_B = Pin(6, Pin.OUT)
-motorRL_dir_A = Pin(7, Pin.OUT) # Moteur arrière gauche 
-motorRL_dir_B = Pin(8, Pin.OUT)
-motorRR_dir_A = Pin(19, Pin.OUT) # Moteur arrière droit
-motorRR_dir_B = Pin(20, Pin.OUT)
-motorFR_dir_A = Pin(21, Pin.OUT) # Moteur avant droit
-motorFR_dir_B = Pin(22, Pin.OUT)
+# Définition des constantes pour les broches des moteurs
+MOTOR_FL_PWM = 4
+MOTOR_FL_DIR = 5
+MOTOR_FL_ENC = 6
+MOTOR_FL_DIR_MULT = -1
 
-encoderFL_A = Pin(2, Pin.IN, Pin.PULL_UP) # Encodeur avant gauche
-encoderFL_B = Pin(3, Pin.IN, Pin.PULL_UP)
-encoderRL_A = Pin(10, Pin.IN, Pin.PULL_UP) # Encodeur arrière gauche
-encoderRL_B = Pin(11, Pin.IN, Pin.PULL_UP)
-encoderRR_A = Pin(16, Pin.IN, Pin.PULL_UP) # Encodeur arrière droit
-encoderRR_B = Pin(17, Pin.IN, Pin.PULL_UP)
-encoderFR_A = Pin(27, Pin.IN, Pin.PULL_UP) # Encodeur avant droit
-encoderFR_B = Pin(28, Pin.IN, Pin.PULL_UP)
+MOTOR_RL_PWM = 9
+MOTOR_RL_DIR = 7
+MOTOR_RL_ENC = 8
+MOTOR_RL_DIR_MULT = 1
 
+MOTOR_RR_PWM = 18
+MOTOR_RR_DIR = 19
+MOTOR_RR_ENC = 20
+MOTOR_RR_DIR_MULT = 1
+
+MOTOR_FR_PWM = 26
+MOTOR_FR_DIR = 21
+MOTOR_FR_ENC = 22
+MOTOR_FR_DIR_MULT = -1
 
 # Constantes du système
 PWM_FREQ = 1000
@@ -40,15 +37,50 @@ ROBOT_WIDTH = 0.2    # largeur du robot en mètres (centre à centre des roues)
 ROBOT_LENGTH = 0.2   # longueur du robot en mètres
 ENCODER_RESOLUTION = 1000  # Résolution en ticks par rotation
 
-# Initialisation des PWM
-motorFL_pwm.freq(PWM_FREQ)
-motorRL_pwm.freq(PWM_FREQ)
-motorRR_pwm.freq(PWM_FREQ)
-motorFR_pwm.freq(PWM_FREQ)
+
+
+class Motor:
+    def __init__(self, pwm_pin, dir_pin_A, dir_pin_B, direction=1):
+        self.pwm = PWM(Pin(pwm_pin))
+        self.dir_A = Pin(dir_pin_A, Pin.OUT)
+        self.dir_B = Pin(dir_pin_B, Pin.OUT)
+        self.direction = direction
+        self.pwm.freq(PWM_FREQ)
+
+    def set_speed(self, speed):
+        speed *= self.direction
+        if speed >= 0:
+            self.dir_A.value(1)
+            self.dir_B.value(0)
+            self.pwm.duty_u16(int(speed * 65535))
+        else:
+            self.dir_A.value(0)
+            self.dir_B.value(1)
+            self.pwm.duty_u16(int(-speed * 65535))
+
+
+
+# Configuration de la LED intégrée
+led = Pin(25, Pin.OUT)
+
+# Allumer la LED
+led.value(1)
+
+# Les moteurs sont tournent vers l'intérerieur pour des valeurs positives
+# si ont veut que tout les moteurrs tournent dans le meme sent pour une valeur positive il faut inverser le sens de rotation de deux moteurs
 
 # Variables pour les encodeurs
 encoder_counts_A = [0, 0, 0, 0]
 
+# Déclaration des encodeurs
+encoderFL_A = Pin(2, Pin.IN, Pin.PULL_UP) # Encodeur avant gauche
+encoderFL_B = Pin(3, Pin.IN, Pin.PULL_UP)
+encoderRL_A = Pin(10, Pin.IN, Pin.PULL_UP) # Encodeur arrière gauche
+encoderRL_B = Pin(11, Pin.IN, Pin.PULL_UP)
+encoderRR_A = Pin(16, Pin.IN, Pin.PULL_UP) # Encodeur arrière droit
+encoderRR_B = Pin(17, Pin.IN, Pin.PULL_UP)
+encoderFR_A = Pin(27, Pin.IN, Pin.PULL_UP) # Encodeur avant droit
+encoderFR_B = Pin(28, Pin.IN, Pin.PULL_UP)
 
 # Callback pour compter les impulsions des encodeurs
 def encoder_callback(pin):
@@ -70,7 +102,6 @@ def encoder_callback(pin):
     elif pin == encoderFR_B and encoderFR_A.value():
         encoder_counts_A[3] -= 1
 
-
 encoderFL_A.irq(trigger=Pin.IRQ_RISING, handler=encoder_callback)
 encoderFL_B.irq(trigger=Pin.IRQ_RISING, handler=encoder_callback)
 encoderRL_A.irq(trigger=Pin.IRQ_RISING, handler=encoder_callback)
@@ -80,34 +111,31 @@ encoderRR_B.irq(trigger=Pin.IRQ_RISING, handler=encoder_callback)
 encoderFR_A.irq(trigger=Pin.IRQ_RISING, handler=encoder_callback)
 encoderFR_B.irq(trigger=Pin.IRQ_RISING, handler=encoder_callback)
 
-# Fonction pour configurer la direction et la vitesse des moteurs
-def set_motor(motor_pwm, motor_dir_A, motor_dir_B, speed):
-    if speed >= 0:
-        motor_dir_A.value(1)
-        motor_dir_B.value(0)
-        motor_pwm.duty_u16(int(speed * 65535))
-    else:
-        motor_dir_A.value(0)
-        motor_dir_B.value(1)
-        motor_pwm.duty_u16(int(-speed * 65535))
+
+# Configuration des moteurs
+motorFL = Motor(MOTOR_FL_PWM, MOTOR_FL_DIR, MOTOR_FL_ENC, MOTOR_FL_DIR_MULT)  # Moteur avant gauche
+motorRL = Motor(MOTOR_RL_PWM, MOTOR_RL_DIR, MOTOR_RL_ENC, MOTOR_RL_DIR_MULT)  # Moteur arrière gauche
+motorRR = Motor(MOTOR_RR_PWM, MOTOR_RR_DIR, MOTOR_RR_ENC, MOTOR_RR_DIR_MULT)  # Moteur arrière droit
+motorFR = Motor(MOTOR_FR_PWM, MOTOR_FR_DIR, MOTOR_FR_ENC, MOTOR_FR_DIR_MULT)  # Moteur avant droit
 
 # Fonction pour contrôler les roues Mecanum
 def move(x_speed, y_speed, rotation_speed):
-    m1_speed = y_speed + x_speed + rotation_speed
-    m2_speed = y_speed - x_speed - rotation_speed
-    m3_speed = y_speed - x_speed + rotation_speed
-    m4_speed = y_speed + x_speed - rotation_speed
+    # Calcul des vitesses des moteurs
+    fl_speed = x_speed + y_speed + rotation_speed
+    rl_speed = x_speed - y_speed - rotation_speed
+    rr_speed = x_speed + y_speed - rotation_speed
+    fr_speed = x_speed - y_speed + rotation_speed
 
-    max_speed = max(abs(m1_speed), abs(m2_speed), abs(m3_speed), abs(m4_speed), 1)
-    m1_speed /= max_speed
-    m2_speed /= max_speed
-    m3_speed /= max_speed
-    m4_speed /= max_speed
+    max_speed = max(abs(fl_speed), abs(rl_speed), abs(rr_speed), abs(fr_speed), 1)
+    fl_speed /= max_speed
+    rl_speed /= max_speed
+    rr_speed /= max_speed
+    fr_speed /= max_speed
 
-    set_motor(motorRL_pwm, motorFL_dir_A, motorFL_dir_B, m1_speed)
-    set_motor(motorFL_pwm, motorRL_dir_A, motorRL_dir_B, m2_speed)
-    set_motor(motorRR_pwm, motorRR_dir_A, motorRR_dir_B, m3_speed)
-    set_motor(motorFR_pwm, motorFR_dir_A, motorFR_dir_B, m4_speed)
+    motorFL.set_speed(fl_speed)
+    motorRL.set_speed(rl_speed)
+    motorRR.set_speed(rr_speed)
+    motorFR.set_speed(fr_speed)
 
 # Fonction pour calculer la distance restante
 def calculate_distance(target_x, target_y, current_x, current_y):
@@ -151,10 +179,31 @@ def go_to_position(target_x, target_y, ramp_rate=0.1, max_speed=1.0):
     # Arrêter le robot
     move(0, 0, 0)
 
-# Exemple d'utilisation
-try:
-    #go_to_position(1.0, 0, ramp_rate=0.05, max_speed=0.5)  # Aller à (1 m, 1 m)
-    set_motor(motorFL_pwm, motorFL_dir_A, motorFL_dir_B, 0.5)
-except KeyboardInterrupt:
-    move(0, 0, 0)
-    print("Arrêt du robot.")
+# Configuration de l'I2C en tant qu'esclave
+i2c = I2C(0, scl=Pin(1), sda=Pin(0), freq=100000)
+
+# Fonction pour traiter les instructions reçues
+def process_instruction(instruction):
+    try:
+        parts = instruction.split()
+        if parts[0] == 'M' and len(parts) == 4:
+            x_speed = float(parts[1])
+            y_speed = float(parts[2])
+            rotation_speed = float(parts[3])
+            move(x_speed, y_speed, rotation_speed)
+        else:
+            print("Instruction inconnue")
+    except Exception as e:
+        print("Erreur de traitement de l'instruction:", e)
+
+# Boucle principale
+run = True
+while(run):
+    if i2c.scan():
+            try:
+                data = i2c.readfrom(I2C_SLAVE_ADDR, 1)  # Lire 1 octet de données
+                process_instruction(data)
+            except OSError:
+                pass
+    utime.sleep(0.1)
+
