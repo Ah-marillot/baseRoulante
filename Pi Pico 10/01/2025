@@ -1,0 +1,184 @@
+from machine import Pin, PWM, I2C
+import math
+import utime
+
+# Définition des constantes
+PWM_FREQ = 1000  # Fréquence PWM
+WHEEL_RADIUS = 0.0325  # Rayon des roues en mètres
+ROBOT_WIDTH = 0.345  # Largeur du robot en mètres
+ROBOT_LENGTH = 0.2  # Longueur du robot en mètres
+
+# Configuration des moteurs et broches
+MOTOR_FL_PWM = 4
+MOTOR_FL_DIR = 5
+MOTOR_FL_ENC = 6
+MOTOR_FL_DIR_MULT = -1
+
+MOTOR_RL_PWM = 9
+MOTOR_RL_DIR = 7
+MOTOR_RL_ENC = 8
+MOTOR_RL_DIR_MULT = -1
+
+MOTOR_RR_PWM = 18
+MOTOR_RR_DIR = 19
+MOTOR_RR_ENC = 20
+MOTOR_RR_DIR_MULT = 1
+
+MOTOR_FR_PWM = 26
+MOTOR_FR_DIR = 21
+MOTOR_FR_ENC = 22
+MOTOR_FR_DIR_MULT = 1
+
+class Motor:
+    def __init__(self, pwm_pin, dir_pin_A, dir_pin_B, direction=1):
+        self.pwm = PWM(Pin(pwm_pin))
+        self.dir_A = Pin(dir_pin_A, Pin.OUT)
+        self.dir_B = Pin(dir_pin_B, Pin.OUT)
+        self.direction = direction
+        self.pwm.freq(PWM_FREQ)
+
+    def set_speed(self, speed):
+        speed *= self.direction
+        if speed >= 0:
+            self.dir_A.value(1)
+            self.dir_B.value(0)
+            self.pwm.duty_u16(int(speed * 65535))
+        else:
+            self.dir_A.value(0)
+            self.dir_B.value(1)
+            self.pwm.duty_u16(int(-speed * 65535))
+
+# Configuration des moteurs
+motorFL = Motor(MOTOR_FL_PWM, MOTOR_FL_DIR, MOTOR_FL_ENC, MOTOR_FL_DIR_MULT)  # Moteur avant gauche
+motorRL = Motor(MOTOR_RL_PWM, MOTOR_RL_DIR, MOTOR_RL_ENC, MOTOR_RL_DIR_MULT)  # Moteur arrière gauche
+motorRR = Motor(MOTOR_RR_PWM, MOTOR_RR_DIR, MOTOR_RR_ENC, MOTOR_RR_DIR_MULT)  # Moteur arrière droit
+motorFR = Motor(MOTOR_FR_PWM, MOTOR_FR_DIR, MOTOR_FR_ENC, MOTOR_FR_DIR_MULT)  # Moteur avant droit
+
+# Fonction pour contrôler les roues Mecanum
+def move(x_speed, y_speed, rotation_speed):
+    # Calcul des vitesses des moteurs
+    fl_speed = x_speed + y_speed + rotation_speed
+    rl_speed = x_speed - y_speed - rotation_speed
+    rr_speed = x_speed + y_speed - rotation_speed
+    fr_speed = x_speed - y_speed + rotation_speed
+
+    max_speed = max(abs(fl_speed), abs(rl_speed), abs(rr_speed), abs(fr_speed), 1)
+    fl_speed /= max_speed
+    rl_speed /= max_speed
+    rr_speed /= max_speed
+    fr_speed /= max_speed
+
+    motorFL.set_speed(fl_speed)
+    motorRL.set_speed(rl_speed)
+    motorRR.set_speed(rr_speed)
+    motorFR.set_speed(fr_speed)
+
+# Fonctions de déplacement
+def move_forward(speed):
+    move(0, speed, 0)
+
+def move_backward(speed):
+    move(0, -speed, 0)
+
+def move_left(speed):
+    move(-speed, 0, 0)
+
+def move_right(speed):
+    move(speed, 0, 0)
+
+def rotate_clockwise(speed):
+    move(0, 0, speed)
+
+def rotate_counterclockwise(speed):
+    move(0, 0, -speed)
+
+def move_in_circle(radius, speed):
+    # Calcul de la vitesse relative des roues pour décrire un cercle
+    angular_speed = speed / radius
+    fl_speed = angular_speed * (radius + ROBOT_WIDTH / 2)
+    rl_speed = angular_speed * (radius + ROBOT_WIDTH / 2)
+    rr_speed = angular_speed * (radius - ROBOT_WIDTH / 2)
+    fr_speed = angular_speed * (radius - ROBOT_WIDTH / 2)
+
+    max_speed = max(abs(fl_speed), abs(rl_speed), abs(rr_speed), abs(fr_speed), 1)
+    fl_speed /= max_speed
+    rl_speed /= max_speed
+    rr_speed /= max_speed
+    fr_speed /= max_speed
+
+    motorFL.set_speed(fl_speed)
+    motorRL.set_speed(rl_speed)
+    motorRR.set_speed(rr_speed)
+    motorFR.set_speed(fr_speed)
+    
+    # Fonctions de déplacement en diagonale
+def move_diagonal_forward_left(speed):
+    move(-speed, speed, 0)
+
+def move_diagonal_forward_right(speed):
+    move(speed, speed, 0)
+
+def move_diagonal_backward_left(speed):
+    move(-speed, -speed, 0)
+
+def move_diagonal_backward_right(speed):
+    move(speed, -speed, 0)
+
+def stop_all():
+    move(0, 0, 0)
+    
+    
+"""
+# Boucle principale pour le menu interactif
+while True:
+    print("\nMecanum Robot Control - Menu")
+    print("1. Move Forward")
+    print("2. Move Backward")
+    print("3. Move Left")
+    print("4. Move Right")
+    print("5. Rotate Clockwise")
+    print("6. Rotate Counterclockwise")
+    print("7. Move in Circle (30cm radius)")
+    print("8. Stop")
+    print("9. Exit")
+
+    choice = input("Enter your choice: ")
+
+    if choice == '1':
+        move_forward(1)
+        utime.sleep(100)
+        stop_all()
+    elif choice == '2':
+        move_backward(0.5)
+        utime.sleep(2)
+        stop_all()
+    elif choice == '3':
+        move_left(0.5)
+        utime.sleep(2)
+        stop_all()
+    elif choice == '4':
+        move_right(0.5)
+        utime.sleep(2)
+        stop_all()
+    elif choice == '5':
+        rotate_clockwise(0.3)
+        utime.sleep(2)
+        stop_all()
+    elif choice == '6':
+        rotate_counterclockwise(0.3)
+        utime.sleep(2)
+        stop_all()
+    elif choice == '7':
+        move_in_circle(0.3, 0.2)  # Rayon de 30 cm et vitesse de 0.2
+        utime.sleep(5)  # Faire le cercle pendant 5 secondes
+        stop_all()
+    elif choice == '8':
+        stop_all()
+    elif choice == '9':
+        print("Exiting...")
+        break
+    else:
+        print("Invalid choice. Please try again.")
+"""
+
+
